@@ -19,6 +19,17 @@ calcFEdemand <- function() {
     setItems(feIndustry[, , "gdp_SSP2EU"], 3.1, to)
   })))
 
+  # add ECEMF scenarios to buildings and transport to match industry scenarios by duplication
+  duplicateScens <- paste0("gdp_SSP2EU_ECEMF_", c("modEffInd", "IndLMD"))
+
+  feTransport <- mbind(feTransport, do.call(mbind, lapply(duplicateScens, function(to) {
+    setItems(feTransport[, , "gdp_SSP2EU"], 3.1, to)
+  })))
+
+  feBuildings <- mbind(feBuildings, do.call(mbind, lapply(duplicateScens, function(to) {
+    setItems(feBuildings[, , "gdp_SSP2EU"], 3.1, to)
+  })))
+
   # add up industry and buildings contributions to stationary
   stationaryItems <- c("fehes", "feh2s")
   feStationary <- feIndustry[, , stationaryItems] + feBuildings[, , stationaryItems]

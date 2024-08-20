@@ -6,7 +6,8 @@
 #' @importFrom data.table :=
 #' @importFrom dplyr anti_join arrange as_tibble between bind_rows case_when
 #'   distinct filter first full_join group_by inner_join lag last left_join
-#'   matches mutate n rename right_join select semi_join summarise ungroup
+#'   matches mutate n reframe rename right_join select semi_join summarise
+#'   ungroup
 #' @importFrom quitte as.quitte cartesian character.data.frame
 #'   interpolate_missing_periods interpolate_missing_periods_ madrat_mule
 #'   magclass_to_tibble overwrite seq_range
@@ -19,6 +20,8 @@
 #' @author Michaja Pehl
 #'
 calcFeDemandIndustry <- function(use_ODYM_RECC = FALSE) {
+  # additional scenarios to generate ----
+  additional_scenarios <- paste0("gdp_SSP2EU_ECEMF_", c("modEffInd", "IndLMD"))
 
   # Functions ------------------
 
@@ -421,6 +424,31 @@ calcFeDemandIndustry <- function(use_ODYM_RECC = FALSE) {
       warnNA = FALSE
     ),
 
+
+    # ---- Industry subsectors data and FE stubs ----
+    .assert_error_fun <- function(message, length = 5) {
+      function(errors, data) {
+        x <- paste(c(
+          message,
+          sapply(errors, getElement, name = 'message'),
+          # data peek
+          data %>%
+            `[`(sapply(errors,
+                       function(x) {
+                         head(x[['error_df']][['index']], length)
+                       },
+                       simplify = FALSE) %>%
+                  unlist() %>%
+                  unique(),) %>%
+            format(width = Inf) %>%
+            # strip ANSI codes
+            gsub('\033\\[[0-9;]+m', '', x = .)),
+          collapse = '\n')
+        dput(x)
+        stop(x, call. = FALSE)
+      }
+    }
+
     calcOutput(
       type = "Steel_Projections",
       subtype = "production",
@@ -553,6 +581,16 @@ calcFeDemandIndustry <- function(use_ODYM_RECC = FALSE) {
     ) %>%
     ungroup()
 
+    # extend gdp_SSP2EU to additional scenarios
+    foo <- bind_rows(
+      foo,
+
+      foo %>%
+        filter('gdp_SSP2EU' == .data$scenario) %>%
+        reframe(scenario = additional_scenarios,
+                       .by = -'scenario')
+    )
+
   region_mapping_21 <- toolGetMapping("regionmapping_21_EU11.csv", "regional", where = "mappingfolder") %>%
     as_tibble() %>%
     select(iso3c = "CountryCode", region = "RegionCode")
@@ -560,7 +598,8 @@ calcFeDemandIndustry <- function(use_ODYM_RECC = FALSE) {
   industry_subsectors_material_alpha <- calcOutput(
     type = "industry_subsectors_specific", subtype = "material_alpha",
     scenarios = c(getNames(x = industry_subsectors_ue, dim = 1),
-                  "gdp_SSP2_lowEn"),
+                  "gdp_SSP2_lowEn",
+                  additional_scenarios),
     regions = unique(region_mapping_21$region),
     aggregate = FALSE
   ) %>%
@@ -575,7 +614,8 @@ calcFeDemandIndustry <- function(use_ODYM_RECC = FALSE) {
   industry_subsectors_material_relative <- calcOutput(
     type = "industry_subsectors_specific", subtype = "material_relative",
     scenarios = c(getNames(x = industry_subsectors_ue, dim = 1),
-                  "gdp_SSP2_lowEn"),
+                  "gdp_SSP2_lowEn",
+                  additional_scenarios),
     regions = unique(region_mapping_21$region),
     aggregate = FALSE
   ) %>%
@@ -598,7 +638,8 @@ calcFeDemandIndustry <- function(use_ODYM_RECC = FALSE) {
     type = "industry_subsectors_specific",
     subtype = "material_relative_change",
     scenarios = c(getNames(x = industry_subsectors_ue, dim = 1),
-                  "gdp_SSP2_lowEn"),
+                  "gdp_SSP2_lowEn",
+                  additional_scenarios),
     regions = unique(region_mapping_21$region),
     aggregate = FALSE
   ) %>%
@@ -749,7 +790,10 @@ calcFeDemandIndustry <- function(use_ODYM_RECC = FALSE) {
 
         c("scenario", "subsector", "iso3c", "year")
       ) %>%
-      assert(not_na, everything()) %>%
+      assert(not_na, everything(),
+             error_fun = .assert_error_fun(
+               message = 'missing specific production relative baseline',
+               length = 10)) %>%
       # scale factor in from 2020-35
       mutate(l = pmin(1, pmax(0, (.data$year - 2020) / (2035 - 2020))),
              value = .data$specific.production
@@ -1336,7 +1380,8 @@ calcFeDemandIndustry <- function(use_ODYM_RECC = FALSE) {
   industry_subsectors_specific_FE <- calcOutput(
     type = "industry_subsectors_specific", subtype = "FE",
     scenarios = c(getNames(x = industry_subsectors_ue, dim = 1),
-                  "gdp_SSP2_lowEn"),
+                  "gdp_SSP2_lowEn",
+                  additional_scenarios),
     regions = unique(region_mapping_21$region),
     aggregate = FALSE
   ) %>%
